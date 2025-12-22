@@ -6,7 +6,8 @@ This repository contains the computational scripts used to perform the single-ce
 
 **Transcriptomic Signature-Guided Depletion of Intermediate Alveolar Epithelial Cells Ameliorates Pulmonary Fibrosis in Mice**.
 
-All analyses were conducted in Python using established open-source libraries, including Scanpy for single-cell data processing, SciPy for statistical analysis, and Seaborn and Matplotlib for visualization. The scripts included here were developed solely to orchestrate and execute the analysis workflow by integrating existing software packages. No novel algorithms or proprietary methods are implemented.
+All analyses were conducted in Python using established open-source libraries (including Scanpy, SciPy, Seaborn, and Matplotlib). The scripts are provided to reproduce the analysis workflow by integrating existing software packages; no novel algorithms were developed.
+
 
 ## Scope of the analysis
 
