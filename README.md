@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18022192.svg)](https://doi.org/10.5281/zenodo.18022192)
+
 # scRNA-seq computational analysis (EGFP / Krt8 ADI)
 
 This repository contains the computational scripts used to perform the single-cell RNA sequencing (scRNA-seq) analyses described in the Methods section of the study entitled:
