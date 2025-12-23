@@ -1,152 +1,90 @@
-from __future__ import annotations
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-import json
 from pathlib import Path
-
+import json
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from scipy.spatial.distance import cosine as cosine_distance
+from scipy.spatial.distance import cosine
 from scipy.stats import pearsonr, spearmanr
 
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
-PROCESSED_DIR = DATA_DIR / "processed"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 OUT_DIR = PROJECT_ROOT / "outputs" / "degs_similarity"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-TULANE_H5AD = PROCESSED_DIR / "adata_tulane_labeled.h5ad"
+IN_H5AD = PROCESSED_DIR / "adata_tulane_normalized_labeled.h5ad"
 
-GFP_COL_CANDIDATES = ["GFP_Status", "EGFP_Status"]
-ADI_COL_CANDIDATES = ["Krt8_ADI_like", "Krt8ADI_highlight", "Krt8ADI_label", "Krt8+ADI-like"]
+TOP_N = 50
+ALPHA = 0.05
 
-TOPK = 50
-
-
-def _to_dense(x):
-    if hasattr(x, "A"):
-        return x.A
+def _to_dense_2d(x):
     if hasattr(x, "toarray"):
         return x.toarray()
+    if hasattr(x, "A"):
+        return x.A
     return np.asarray(x)
 
+def top_degs_to_df(adata, group_key, group_name, top_n):
+    df = sc.get.rank_genes_groups_df(adata, group=group_name)
+    df = df[df["pvals_adj"] < ALPHA].copy()
+    df = df.sort_values(["scores"], ascending=False).head(top_n)
+    df["group"] = group_name
+    df["group_key"] = group_key
+    return df
 
-def _find_obs_col(adata: sc.AnnData, candidates: list[str]) -> str:
-    for c in candidates:
-        if c in adata.obs.columns:
-            return c
-    raise KeyError(f"None of the expected columns found in adata.obs: {candidates}")
+def main():
+    adata = sc.read_h5ad(str(IN_H5AD))
 
+    if "GFP_Status" not in adata.obs.columns:
+        raise RuntimeError("GFP_Status missing.")
+    if "Krt8+ADI-like" not in adata.obs.columns:
+        raise RuntimeError("Krt8+ADI-like missing.")
 
-def _ensure_binary_labels(series: pd.Series, positive_values: set[str], out_pos="True", out_neg="False") -> pd.Categorical:
-    s = series.astype(str)
-    is_pos = s.isin(positive_values)
-    return pd.Categorical(np.where(is_pos, out_pos, out_neg), categories=[out_neg, out_pos], ordered=True)
-
-
-def run_deg_topk(adata: sc.AnnData, groupby: str, group: str, reference: str, topk: int) -> pd.DataFrame:
-    sc.tl.rank_genes_groups(
-        adata,
-        groupby=groupby,
-        groups=[group],
-        reference=reference,
-        method="wilcoxon",
+    adata_egfp = adata.copy()
+    adata_egfp.obs["deg_group"] = pd.Categorical(
+        np.where(adata_egfp.obs["GFP_Status"].astype(str) == "GFP+", "EGFP+", "Other")
     )
-    df = sc.get.rank_genes_groups_df(adata, group=group)
+    sc.tl.rank_genes_groups(adata_egfp, groupby="deg_group", method="wilcoxon")
+    deg_egfp = top_degs_to_df(adata_egfp, "deg_group", "EGFP+", TOP_N)
+    deg_egfp.to_csv(OUT_DIR / "deg_EGFPplus_top50.csv", index=False)
 
-    if "pvals_adj" in df.columns:
-        df = df[df["pvals_adj"] < 0.05].copy()
-
-    sort_col = "pvals_adj" if "pvals_adj" in df.columns else "pvals"
-    return df.sort_values(sort_col, ascending=True).head(topk).copy()
-
-
-def mean_expression_vector(adata: sc.AnnData, genes: list[str], mask: np.ndarray) -> np.ndarray:
-    X = _to_dense(adata[:, genes].X)
-    return X[mask].mean(axis=0)
-
-
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    return float(1.0 - cosine_distance(a, b))
-
-
-def main() -> None:
-    if not TULANE_H5AD.exists():
-        raise FileNotFoundError(f"Missing input: {TULANE_H5AD}")
-
-    print(f"[INFO] Reading AnnData: {TULANE_H5AD}")
-    ad = sc.read_h5ad(TULANE_H5AD)
-    ad.var_names_make_unique()
-
-    gfp_col = _find_obs_col(ad, GFP_COL_CANDIDATES)
-    adi_col = _find_obs_col(ad, ADI_COL_CANDIDATES)
-
-    ad.obs["__GFP_BOOL__"] = _ensure_binary_labels(
-        ad.obs[gfp_col],
-        positive_values={"GFP+", "EGFP+", "True", "1"},
+    adata_krt8 = adata.copy()
+    adata_krt8.obs["deg_group"] = pd.Categorical(
+        np.where(adata_krt8.obs["Krt8+ADI-like"].astype(str) == "Krt8+ADI-like", "Krt8+ADI-like", "Other")
     )
+    sc.tl.rank_genes_groups(adata_krt8, groupby="deg_group", method="wilcoxon")
+    deg_krt8 = top_degs_to_df(adata_krt8, "deg_group", "Krt8+ADI-like", TOP_N)
+    deg_krt8.to_csv(OUT_DIR / "deg_Krt8ADI_top50.csv", index=False)
 
-    ad.obs["__ADI_BOOL__"] = _ensure_binary_labels(
-        ad.obs[adi_col],
-        positive_values={"Krt8+ ADI-like", "Krt8+ ADI", "Krt8+ADI-like", "True", "1"},
-    )
+    genes_egfp = [g for g in deg_egfp["names"].tolist() if g in adata.var_names]
+    genes_krt8 = [g for g in deg_krt8["names"].tolist() if g in adata.var_names]
+    genes_union = sorted(set(genes_egfp) | set(genes_krt8))
 
-    print("[INFO] Differential expression: EGFP+ vs EGFP-")
-    deg_gfp = run_deg_topk(ad, groupby="__GFP_BOOL__", group="True", reference="False", topk=TOPK)
-    deg_gfp.to_csv(OUT_DIR / "deg_EGFPplus_top50.csv", index=False)
+    egfp_cells = adata.obs["GFP_Status"].astype(str) == "GFP+"
+    krt8_cells = adata.obs["Krt8+ADI-like"].astype(str) == "Krt8+ADI-like"
 
-    print("[INFO] Differential expression: Krt8+ ADI-like vs Other")
-    deg_adi = run_deg_topk(ad, groupby="__ADI_BOOL__", group="True", reference="False", topk=TOPK)
-    deg_adi.to_csv(OUT_DIR / "deg_Krt8ADI_top50.csv", index=False)
+    X_egfp = _to_dense_2d(adata[egfp_cells, genes_union].X)
+    X_krt8 = _to_dense_2d(adata[krt8_cells, genes_union].X)
 
-    genes_gfp = deg_gfp["names"].dropna().astype(str).tolist() if "names" in deg_gfp.columns else []
-    genes_adi = deg_adi["names"].dropna().astype(str).tolist() if "names" in deg_adi.columns else []
+    v1 = np.asarray(X_egfp.mean(axis=0)).ravel()
+    v2 = np.asarray(X_krt8.mean(axis=0)).ravel()
 
-    gene_union = sorted(set(genes_gfp) | set(genes_adi))
-    gene_union = [g for g in gene_union if g in ad.var_names]
-    if len(gene_union) == 0:
-        raise RuntimeError("No DE genes available for similarity computation after filtering.")
+    pear = float(pearsonr(v1, v2)[0]) if len(v1) > 1 else float("nan")
+    spear = float(spearmanr(v1, v2)[0]) if len(v1) > 1 else float("nan")
+    cos_sim = float(1.0 - cosine(v1, v2)) if (np.any(v1) or np.any(v2)) else float("nan")
 
-    gfp_mask = (ad.obs["__GFP_BOOL__"].astype(str).values == "True")
-    adi_mask = (ad.obs["__ADI_BOOL__"].astype(str).values == "True")
+    metrics = {"n_union_genes": int(len(genes_union)), "pearson": pear, "spearman": spear, "cosine_similarity": cos_sim}
 
-    gfp_avg = mean_expression_vector(ad, gene_union, gfp_mask)
-    adi_avg = mean_expression_vector(ad, gene_union, adi_mask)
-
-    metrics = {
-        "n_union_genes_used": int(len(gene_union)),
-        "pearson": float(pearsonr(gfp_avg, adi_avg)[0]),
-        "spearman": float(spearmanr(gfp_avg, adi_avg)[0]),
-        "cosine": float(cosine_similarity(gfp_avg, adi_avg)),
-    }
     with open(OUT_DIR / "similarity_metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
-    df_means = pd.DataFrame(
-        {"gene": gene_union, "EGFP_plus_mean": gfp_avg, "Krt8_ADI_like_mean": adi_avg}
-    )
-    df_means.to_csv(OUT_DIR / "shared_genes_mean_expression.csv", index=False)
-
-    hm = pd.DataFrame(
-        np.vstack([gfp_avg, adi_avg]),
-        index=["EGFP+", "Krt8+ ADI-like"],
-        columns=gene_union,
+    pd.DataFrame({"gene": genes_union, "mean_EGFPplus": v1, "mean_Krt8ADI": v2}).to_csv(
+        OUT_DIR / "shared_genes_mean_expression.csv", index=False
     )
 
-    plt.figure(figsize=(max(10, 0.25 * len(gene_union)), 3.2))
-    sns.heatmap(hm, cmap="viridis", cbar=True)
-    plt.title("Mean expression (Top50 DEG union)")
-    plt.ylabel("")
-    plt.tight_layout()
-    plt.savefig(OUT_DIR / "heatmap_mean_expression.png", dpi=300)
-    plt.close()
-
-    print(f"[INFO] Outputs saved to: {OUT_DIR}")
-
+    print(str(OUT_DIR))
 
 if __name__ == "__main__":
     main()
