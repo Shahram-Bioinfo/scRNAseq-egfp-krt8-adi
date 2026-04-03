@@ -1,4 +1,4 @@
-scRNA-seq computational analysis (EGFP / Krt8 ADI)
+##scRNA-seq computational analysis (EGFP / Krt8 ADI)
 
 This repository contains the computational scripts used to perform the single-cell RNA sequencing (scRNA-seq) analyses described in the Methods section of the study entitled:
 
