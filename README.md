@@ -1,5 +1,7 @@
 # scRNA-seq Computational Analysis (EGFP / Krt8 ADI)
-
+<p align="center">
+  <img src="doc/header.png" width="100%">
+</p>
 This repository contains the computational workflows used for single-cell RNA sequencing (scRNA-seq) analysis described in the following study:
 
 **Peng et al., Nature Communications (2026)**  
